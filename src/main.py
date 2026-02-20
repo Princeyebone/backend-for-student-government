@@ -5,12 +5,14 @@ from .database import create_db_and_tables
 from .routes_auth import router as auth_router
 from .routes_content import router as content_router
 from .uploads import router as upload_router
+import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Create database tables
+    # Startup: create tables safely
     print("Creating database tables...")
-    create_db_and_tables()
+    # Run synchronous DB init in a thread pool to avoid blocking
+    await asyncio.to_thread(create_db_and_tables)
     print("Database tables created successfully!")
     yield
     # Shutdown: cleanup if needed
