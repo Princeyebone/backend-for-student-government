@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -9,27 +10,21 @@ import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables safely
-    print("Creating database tables...")
-    # Run synchronous DB init in a thread pool to avoid blocking
+    # Run DB creation in background thread to avoid blocking
     await asyncio.to_thread(create_db_and_tables)
-    print("Database tables created successfully!")
     yield
-    # Shutdown: cleanup if needed
     print("Shutting down...")
 
 app = FastAPI(title="Student Government CMS", lifespan=lifespan)
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Frontend URLs
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(auth_router)
 app.include_router(content_router)
 app.include_router(upload_router)
