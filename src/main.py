@@ -6,6 +6,7 @@ from .database import create_db_and_tables
 from .routes_auth import router as auth_router
 from .routes_content import router as content_router
 from .uploads import router as upload_router
+from .routes_bills import router as bills_router
 from .config import settings
 import asyncio
 
@@ -43,10 +44,11 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(content_router)
 app.include_router(upload_router)
+app.include_router(bills_router)
 
 @app.get("/")
 async def home():
-    return {"welcome": "Student Government CMS API", "version": "1.0.0"}
+    return {"welcome": "Student Government CMS API", "version": "2.0.0"}
 
 @app.get("/health")
 async def health_check():

@@ -1,7 +1,7 @@
 # database.py
 from sqlmodel import SQLModel, Session, create_engine
 from .config import settings
-from .model import User, Home, Leadership, News, Gallary, Contact, AuditLog, HeroSlide
+from .model import User, Home, Leadership, News, Gallary, Contact, AuditLog, HeroSlide, Bill
 import time
 
 engine = create_engine(settings.DATABASE_URL, echo=True)

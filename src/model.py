@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field
-from typing import Optional
-from datetime import datetime
+from sqlalchemy import Column, JSON
+from typing import Optional, Any
+from datetime import datetime, date
 from enum import Enum
 import uuid
 
@@ -91,5 +92,51 @@ class AuditLog(SQLModel, table=True):
     details: Optional[str] = None  # Additional details about the action
     ip_address: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+# ──────────────────────────── Bills ───────────────────────────────────────────
+
+class BillCategory(str, Enum):
+    WELFARE        = "Welfare"
+    ACADEMIC       = "Academic"
+    FINANCE        = "Finance"
+    INFRASTRUCTURE = "Infrastructure"
+    EVENTS         = "Events"
+    CONSTITUTIONAL = "Constitutional"
+
+
+class BillStatus(str, Enum):
+    DRAFT        = "Draft"
+    UNDER_REVIEW = "Under Review"
+    VOTING       = "Voting"
+    APPROVED     = "Approved"
+    REJECTED     = "Rejected"
+
+
+class Bill(SQLModel, table=True):
+    """Tracks Student Senate legislative bills and their progress"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str = Field(index=True)
+    description: str
+    category: BillCategory = Field(index=True)
+    status: BillStatus = Field(default=BillStatus.DRAFT, index=True)
+    sponsor: str = Field(index=True)
+    date_proposed: date
+
+    # Voting outcomes (optional until bill reaches Voting/Approved/Rejected)
+    votes_for: Optional[int] = Field(default=None)
+    votes_against: Optional[int] = Field(default=None)
+    abstain: Optional[int] = Field(default=None)
+    total_senators: Optional[int] = Field(default=None)
+
+    # JSON arrays stored natively in PostgreSQL
+    documents: Optional[Any] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    timeline: Any = Field(default=None, sa_column=Column(JSON, nullable=False))
+
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: str
+    updated_by: str
 
 
