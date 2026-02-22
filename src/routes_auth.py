@@ -11,6 +11,7 @@ from .model import User, Role
 from .schemas import UserCreate, AdminCreate, EditorCreate, UserResponse, LoginRequest, Token
 from .auth import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_refresh_token
 from .dependencies import get_current_admin, get_current_active_user
+from .audit import create_audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 @router.post("/register/admin", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_admin(
     user_data: AdminCreate,
+    request: Request,
     session: Annotated[Session, Depends(get_session)]
 ):
     """
@@ -48,6 +50,17 @@ def register_admin(
     session.add(new_user)
     session.commit()
     session.refresh(new_user)
+
+    # Audit log the bootstrap admin registration using the new user as actor
+    create_audit_log(
+        session=session,
+        user=new_user,
+        action="register_admin",
+        resource="user",
+        resource_id=str(new_user.id),
+        details=f"Bootstrap admin account created: {new_user.name} ({new_user.email})",
+        request=request
+    )
     
     return new_user
 
@@ -55,6 +68,7 @@ def register_admin(
 @router.post("/register/editor", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_editor(
     user_data: EditorCreate,
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     current_admin: Annotated[User, Depends(get_current_admin)]
 ):
@@ -88,6 +102,17 @@ def register_editor(
     session.add(new_user)
     session.commit()
     session.refresh(new_user)
+
+    # Audit log: admin created a new editor
+    create_audit_log(
+        session=session,
+        user=current_admin,
+        action="register_editor",
+        resource="user",
+        resource_id=str(new_user.id),
+        details=f"Admin created editor account: {new_user.name} ({new_user.email})",
+        request=request
+    )
     
     return new_user
 
@@ -102,7 +127,6 @@ def login(
     Login endpoint - returns JWT access token and refresh token
     Checks if user needs to change password (password == '12345678')
     """
-    from .audit import create_audit_log
     
     # Find user by email
     statement = select(User).where(User.email == login_data.email)
@@ -150,6 +174,7 @@ def login(
 @router.post("/login/form", response_model=Token)
 def login_form(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: Request,
     session: Annotated[Session, Depends(get_session)]
 ):
     """
@@ -167,13 +192,23 @@ def login_form(
         )
     
     # Create access token
-    access_token = create_access_token(
-        data={"sub": user.email, "role": user.role.value}
+    token_data = {"sub": user.email, "role": user.role.value}
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data=token_data)
+
+    # Audit log for form-based (Swagger UI) login
+    create_audit_log(
+        session=session,
+        user=user,
+        action="login",
+        details=f"Successful Swagger/form login for {user.role.value}",
+        request=request
     )
     
     return Token(
         access_token=access_token,
         token_type="bearer",
+        refresh_token=refresh_token,
         user=UserResponse(
             id=user.id,
             name=user.name,
@@ -185,6 +220,7 @@ def login_form(
 
 @router.get("/users", response_model=list[UserResponse])
 def list_users(
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     current_admin: Annotated[User, Depends(get_current_admin)]
 ):
@@ -193,6 +229,17 @@ def list_users(
     """
     statement = select(User)
     users = session.exec(statement).all()
+
+    # Audit log: admin viewed the user list
+    create_audit_log(
+        session=session,
+        user=current_admin,
+        action="list_users",
+        resource="user",
+        details=f"Admin viewed user list ({len(users)} users)",
+        request=request
+    )
+
     return users
 
 
@@ -203,7 +250,8 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/change-password")
 def change_password(
-    request: ChangePasswordRequest,
+    body: ChangePasswordRequest,
+    http_request: Request,
     session: Annotated[Session, Depends(get_session)],
     current_user: Annotated[User, Depends(get_current_active_user)]
 ):
@@ -211,23 +259,34 @@ def change_password(
     Change user password (requires authentication)
     """
     # Verify old password
-    if not verify_password(request.old_password, current_user.hashed_password):
+    if not verify_password(body.old_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password"
         )
     
     # Validate new password
-    if len(request.new_password) < 8:
+    if len(body.new_password) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must be at least 8 characters"
         )
     
     # Update password
-    current_user.hashed_password = get_password_hash(request.new_password)
+    current_user.hashed_password = get_password_hash(body.new_password)
     session.add(current_user)
     session.commit()
+
+    # Audit log: user changed their password
+    create_audit_log(
+        session=session,
+        user=current_user,
+        action="change_password",
+        resource="user",
+        resource_id=str(current_user.id),
+        details=f"{current_user.role.value} changed their password",
+        request=http_request
+    )
     
     return {"message": "Password changed successfully"}
 
@@ -244,7 +303,6 @@ def delete_user(
     Only editors can be deleted, not admins
     Admins cannot delete themselves
     """
-    from .audit import create_audit_log
     
     # Find user
     statement = select(User).where(User.id == user_id)
@@ -294,14 +352,15 @@ class RefreshTokenRequest(BaseModel):
 
 @router.post("/refresh", response_model=Token)
 def refresh_access_token(
-    request: RefreshTokenRequest,
+    body: RefreshTokenRequest,
+    http_request: Request,
     session: Annotated[Session, Depends(get_session)]
 ):
     """
     Refresh access token using refresh token
     """
     # Decode refresh token
-    token_data = decode_refresh_token(request.refresh_token)
+    token_data = decode_refresh_token(body.refresh_token)
     
     if token_data is None or token_data.email is None:
         raise HTTPException(
@@ -323,6 +382,17 @@ def refresh_access_token(
     # Create new access token
     new_token_data = {"sub": user.email, "role": user.role.value}
     access_token = create_access_token(data=new_token_data)
+
+    # Audit log: user refreshed their session
+    create_audit_log(
+        session=session,
+        user=user,
+        action="token_refresh",
+        resource="user",
+        resource_id=str(user.id),
+        details=f"{user.role.value} refreshed their access token",
+        request=http_request
+    )
     
     return Token(
         access_token=access_token,
@@ -333,12 +403,13 @@ def refresh_access_token(
             email=user.email,
             role=user.role.value
         ),
-        refresh_token=request.refresh_token  # Return same refresh token
+        refresh_token=body.refresh_token  # Return same refresh token
     )
 
 
 @router.get("/audit-logs")
 def get_audit_logs(
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     current_admin: Annotated[User, Depends(get_current_admin)],
     limit: int = 100,
@@ -368,5 +439,15 @@ def get_audit_logs(
             "ip_address": log.ip_address,
             "timestamp": log.timestamp.isoformat()
         })
+
+    # Audit log: admin viewed the audit logs
+    create_audit_log(
+        session=session,
+        user=current_admin,
+        action="view_audit_logs",
+        resource="audit_log",
+        details=f"Admin viewed audit logs (limit={limit}, offset={offset}, returned={len(logs_data)} entries)",
+        request=request
+    )
     
     return {"logs": logs_data, "total": len(logs_data)}
