@@ -1,7 +1,7 @@
 """Content management routes for news, leadership, gallery, and home sections"""
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlmodel import Session, select
-from typing import Annotated
+from typing import Annotated, Optional
 import uuid
 from datetime import datetime
 import os
@@ -224,27 +224,35 @@ def delete_news(
 @router.get("/leadership/", response_model=list[dict])
 def get_leadership(session: Annotated[Session, Depends(get_session)]):
     """
-    Get all leadership members
+    Get all leadership members.
+    Returns empty list if no members exist or the DB is unavailable.
     """
-    statement = select(Leadership).order_by(Leadership.update_at.desc())
-    leadership_items = session.exec(statement).all()
-    
-    leadership_list = []
-    for item in leadership_items:
-        leadership_dict = {
-            "id": item.id,
-            "name": item.name,
-            "role": item.role,
-            "image": item.image,
-            "image_public_id": item.image_public_id,
-            "year": item.year,
-            "note": item.note,
-            "update_at": item.update_at.isoformat(),
-            "update_by": item.update_by,
-        }
-        leadership_list.append(leadership_dict)
+    try:
+        statement = select(Leadership).order_by(Leadership.update_at.desc())
+        leadership_items = session.exec(statement).all()
 
-    return leadership_list
+        if not leadership_items:
+            return []
+
+        leadership_list = []
+        for item in leadership_items:
+            leadership_dict = {
+                "id": item.id,
+                "name": item.name,
+                "role": item.role,
+                "image": item.image,
+                "image_public_id": item.image_public_id,
+                "year": item.year,
+                "note": item.note,
+                "update_at": item.update_at.isoformat(),
+                "update_by": item.update_by,
+            }
+            leadership_list.append(leadership_dict)
+
+        return leadership_list
+    except Exception as e:
+        print(f"Error fetching leadership: {e}")
+        return []
 
 
 @router.post("/leadership/", response_model=dict)
@@ -442,24 +450,33 @@ def delete_leadership(
 @router.get("/gallery/", response_model=list[dict])
 def get_gallery(session: Annotated[Session, Depends(get_session)]):
     """
-    Get all gallery items
+    Get all gallery items.
+    Returns empty list if no items exist or the DB is unavailable.
     """
-    statement = select(Gallery).order_by(Gallery.created_at.desc())
-    gallery_items = session.exec(statement).all()
-    
-    gallery_list = []
-    for item in gallery_items:
-        gallery_dict = {
-            "id": item.id,
-            "g_image": item.g_image,
-            "g_image_text": item.g_image_text,
-            "created_at": item.created_at.isoformat(),
-            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-            "created_by": item.created_by,
-        }
-        gallery_list.append(gallery_dict)
-    
-    return gallery_list
+    try:
+        statement = select(Gallery).order_by(Gallery.created_at.desc())
+        gallery_items = session.exec(statement).all()
+
+        if not gallery_items:
+            return []
+
+        gallery_list = []
+        for item in gallery_items:
+            gallery_dict = {
+                "id": item.id,
+                "g_image": item.g_image,
+                "g_image_public_id": getattr(item, "g_image_public_id", None),
+                "g_image_text": item.g_image_text,
+                "created_at": item.created_at.isoformat(),
+                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                "created_by": item.created_by,
+            }
+            gallery_list.append(gallery_dict)
+
+        return gallery_list
+    except Exception as e:
+        print(f"Error fetching gallery: {e}")
+        return []
 
 
 @router.post("/gallery/", response_model=dict)
@@ -611,29 +628,33 @@ def delete_gallery(
 
 
 # Home Section Management Routes
-@router.get("/home/", response_model=dict)
+@router.get("/home/", response_model=Optional[dict])
 def get_home(session: Annotated[Session, Depends(get_session)]):
     """
-    Get home section data (hero image, text, etc.)
+    Get home section data (hero image, text, president's message, etc.)
+    Returns null if the home section has not been configured yet.
     """
-    # Get the most recently updated home record
-    statement = select(Home).order_by(Home.updated_at.desc()).limit(1)
-    home_data = session.exec(statement).first()
-    
-    if not home_data:
-        raise HTTPException(status_code=404, detail="Home section data not found")
-    
-    return {
-        "id": home_data.id,
-        "hero_image": home_data.hero_image,
-        "hero_image_public_id": home_data.hero_image_public_id,
-        "hero_text": home_data.hero_text,
-        "p_desk_m": home_data.p_desk_m,
-        "p_desk_m_image": home_data.p_desk_m_image,
-        "p_desk_m_image_public_id": home_data.p_desk_m_image_public_id,
-        "updated_at": home_data.updated_at.isoformat(),
-        "updated_by": home_data.updated_by,
-    }
+    try:
+        statement = select(Home).order_by(Home.updated_at.desc()).limit(1)
+        home_data = session.exec(statement).first()
+
+        if not home_data:
+            return None
+
+        return {
+            "id": home_data.id,
+            "hero_image": home_data.hero_image,
+            "hero_image_public_id": home_data.hero_image_public_id,
+            "hero_text": home_data.hero_text,
+            "p_desk_m": home_data.p_desk_m,
+            "p_desk_m_image": home_data.p_desk_m_image,
+            "p_desk_m_image_public_id": home_data.p_desk_m_image_public_id,
+            "updated_at": home_data.updated_at.isoformat(),
+            "updated_by": home_data.updated_by,
+        }
+    except Exception as e:
+        print(f"Error fetching home data: {e}")
+        return None
 
 
 @router.put("/home/", response_model=dict)
@@ -747,26 +768,30 @@ async def update_home(
 
 
 # Contact Management Routes
-@router.get("/contact/", response_model=dict)
+@router.get("/contact/", response_model=Optional[dict])
 def get_contact(session: Annotated[Session, Depends(get_session)]):
     """
-    Get contact information
+    Get contact information.
+    Returns null if contact info has not been configured yet.
     """
-    # Get the most recently updated contact record
-    statement = select(Contact).order_by(Contact.update_at.desc()).limit(1)
-    contact_data = session.exec(statement).first()
-    
-    if not contact_data:
-        raise HTTPException(status_code=404, detail="Contact information not found")
-    
-    return {
-        "id": contact_data.id,
-        "address": contact_data.address,
-        "c_email": contact_data.c_email,
-        "phone": contact_data.phone,
-        "update_at": contact_data.update_at.isoformat(),
-        "update_by": contact_data.update_by,
-    }
+    try:
+        statement = select(Contact).order_by(Contact.update_at.desc()).limit(1)
+        contact_data = session.exec(statement).first()
+
+        if not contact_data:
+            return None
+
+        return {
+            "id": contact_data.id,
+            "address": contact_data.address,
+            "c_email": contact_data.c_email,
+            "phone": contact_data.phone,
+            "update_at": contact_data.update_at.isoformat(),
+            "update_by": contact_data.update_by,
+        }
+    except Exception as e:
+        print(f"Error fetching contact data: {e}")
+        return None
 
 
 @router.put("/contact/", response_model=dict)
@@ -860,28 +885,36 @@ def update_contact(
 @router.get("/hero-slides/", response_model=list[dict])
 def get_hero_slides(session: Annotated[Session, Depends(get_session)]):
     """
-    Get all active hero slides ordered by order_index
+    Get all active hero slides ordered by order_index.
+    Returns empty list if no slides exist or the DB is unavailable.
     """
-    statement = select(HeroSlide).where(HeroSlide.is_active == True).order_by(HeroSlide.order_index.asc())
-    slides = session.exec(statement).all()
-    
-    slides_list = []
-    for slide in slides:
-        slide_dict = {
-            "id": slide.id,
-            "image_url": slide.image_url,
-            "image_public_id": slide.image_public_id,
-            "caption": slide.caption,
-            "order_index": slide.order_index,
-            "is_active": slide.is_active,
-            "created_at": slide.created_at.isoformat(),
-            "created_by": slide.created_by,
-            "updated_at": slide.updated_at.isoformat() if slide.updated_at else None,
-            "updated_by": slide.updated_by,
-        }
-        slides_list.append(slide_dict)
-    
-    return slides_list
+    try:
+        statement = select(HeroSlide).where(HeroSlide.is_active == True).order_by(HeroSlide.order_index.asc())
+        slides = session.exec(statement).all()
+
+        if not slides:
+            return []
+
+        slides_list = []
+        for slide in slides:
+            slide_dict = {
+                "id": slide.id,
+                "image_url": slide.image_url,
+                "image_public_id": slide.image_public_id,
+                "caption": slide.caption,
+                "order_index": slide.order_index,
+                "is_active": slide.is_active,
+                "created_at": slide.created_at.isoformat(),
+                "created_by": slide.created_by,
+                "updated_at": slide.updated_at.isoformat() if slide.updated_at else None,
+                "updated_by": slide.updated_by,
+            }
+            slides_list.append(slide_dict)
+
+        return slides_list
+    except Exception as e:
+        print(f"Error fetching hero slides: {e}")
+        return []
 
 
 @router.post("/hero-slides/", response_model=dict)
