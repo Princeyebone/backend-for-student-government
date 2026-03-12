@@ -1,8 +1,29 @@
-# Environment variables
+# ============================================================
+# SECRETS & CREDENTIALS — Never commit these!
+# ============================================================
+
+# Environment variable files (contain DB passwords, API keys, etc.)
 .env
 .env.local
 .env.production
 .env.staging
+.env.development
+*.env
+
+# SQL scripts that contain real credentials / local DB setup
+recreate_database.sql
+fix_permissions.sql
+grant_permissions.sql
+
+# Local diagnostic and one-off fix scripts (contain connection strings)
+diagnose_and_fix.py
+fix_all_database_issues.py
+fix_database.py
+quick_fix.py
+safe_setup.py
+check_gallery.py
+check_leadership.py
+create_admin_user.py
 
 # Python
 __pycache__/
